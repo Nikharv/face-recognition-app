@@ -1,25 +1,32 @@
 import * as faceapi from 'face-api.js';
 
 export class FaceDetectionService {
-  private isInit = false;
+  private isInitialized = false;
+  private readonly modelUrl = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
 
   async initialize(): Promise<void> {
-    if (this.isInit) return;
+    if (this.isInitialized) return;
 
     try {
-      await faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights');
-      await faceapi.nets.faceLandmark68Net.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights');
-      await faceapi.nets.faceExpressionNet.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights');
-      await faceapi.nets.ageGenderNet.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights');
-      this.isInit = true;
-    } catch (err) {
-      throw new Error('Failed to load face detection models');
+      console.log('Loading face detection models...');
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(this.modelUrl),
+        faceapi.nets.faceLandmark68Net.loadFromUri(this.modelUrl),
+        faceapi.nets.faceRecognitionNet.loadFromUri(this.modelUrl),
+        faceapi.nets.faceExpressionNet.loadFromUri(this.modelUrl),
+        faceapi.nets.ageGenderNet.loadFromUri(this.modelUrl)
+      ]);
+      console.log('Models loaded successfully');
+      this.isInitialized = true;
+    } catch (error) {
+      console.error('Error loading models:', error);
+      throw new Error(`Failed to initialize face detection: ${(error as Error).message}`);
     }
   }
 
-  async detectFaces(image: HTMLCanvasElement | HTMLImageElement): Promise<any[]> {
-    if (!this.isInit) {
-      await this.initialize();
+  async detectFaces(image: HTMLImageElement | HTMLVideoElement): Promise<faceapi.WithFaceExpressions<faceapi.WithAgeAndGender<faceapi.WithFaceLandmarks<{ detection: faceapi.FaceDetection }>>>[]> {
+    if (!this.isInitialized) {
+      throw new Error('Face detection not initialized');
     }
 
     try {
@@ -27,27 +34,14 @@ export class FaceDetectionService {
         .withFaceLandmarks()
         .withFaceExpressions()
         .withAgeAndGender();
-
-      return detections.map((detection, index) => {
-        const box = detection.detection.box;
-        const expressions = detection.expressions;
-        const emotion = Object.entries(expressions)
-          .sort(([, a], [, b]) => b - a)[0][0];
-
-        return {
-          id: `face-${index}`,
-          x: box.x,
-          y: box.y,
-          width: box.width,
-          height: box.height,
-          age: Math.round(detection.age),
-          gender: detection.gender,
-          emotion: emotion,
-          confidence: detection.detection.score
-        };
-      });
-    } catch (err) {
-      throw new Error('Failed to detect faces');
+      return detections;
+    } catch (error) {
+      console.error('Error detecting faces:', error);
+      throw new Error(`Failed to detect faces: ${(error as Error).message}`);
     }
+  }
+
+  dispose(): void {
+    this.isInitialized = false;
   }
 } 

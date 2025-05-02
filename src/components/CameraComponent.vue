@@ -2,7 +2,7 @@
   <div class="camera-container">
     <div class="video-container">
       <video
-        ref="videoRef"
+        ref="videoElement"
         class="video-feed"
         :class="{ 'd-none': !isCameraActive }"
         autoplay
@@ -20,7 +20,9 @@
           class="face-box"
           :style="getFaceBoxStyle(face)"
         >
-          <div class="face-label">{{ getEmotionLabel(face) }}</div>
+          <div class="face-label" v-if="face.emotion">
+            {{ face.emotion }}
+          </div>
         </div>
       </div>
     </div>
@@ -28,22 +30,15 @@
     <div class="controls mt-3">
       <button
         class="btn btn-primary me-2"
-        @click="startCamera"
-        :disabled="isCameraActive"
+        @click="toggleCamera"
+        :disabled="isLoading"
       >
-        Start Camera
-      </button>
-      <button
-        class="btn btn-danger me-2"
-        @click="stopCamera"
-        :disabled="!isCameraActive"
-      >
-        Stop Camera
+        {{ isCameraActive ? 'Stop Camera' : 'Start Camera' }}
       </button>
       <button
         class="btn btn-success me-2"
         @click="captureFrame"
-        :disabled="!isCameraActive"
+        :disabled="!isCameraActive || isLoading"
       >
         Capture Frame
       </button>
@@ -58,6 +53,7 @@
         <button
           class="btn btn-info"
           @click="triggerFileUpload"
+          :disabled="isLoading"
         >
           Upload Image
         </button>
@@ -68,24 +64,26 @@
       {{ error }}
     </div>
 
-    <div v-if="detectedFaces.length > 0" class="face-details">
-      <h3>Detected Faces</h3>
+    <div v-if="detectedFaces.length > 0" class="faces-container mt-3">
+      <h4>Detected Faces: {{ detectedFaces.length }}</h4>
       <div v-for="face in detectedFaces" :key="face.id" class="face-info">
-        <p>ID: {{ face.id }}</p>
-        <p>Position: ({{ Math.round(face.boundingBox.x) }}, {{ Math.round(face.boundingBox.y) }})</p>
-        <p>Size: {{ Math.round(face.boundingBox.width) }}x{{ Math.round(face.boundingBox.height) }}</p>
-        <p v-if="face.age">Age: {{ Math.round(face.age) }}</p>
-        <p v-if="face.gender">Gender: {{ face.gender }}</p>
-        <p v-if="face.emotion">Emotion: {{ face.emotion }}</p>
-        <p v-if="face.confidence">Confidence: {{ Math.round(face.confidence * 100) }}%</p>
+        <div class="face-details">
+          <p>Face ID: {{ face.id }}</p>
+          <p>Position: ({{ Math.round(face.boundingBox.x) }}, {{ Math.round(face.boundingBox.y) }})</p>
+          <p>Size: {{ Math.round(face.boundingBox.width) }}x{{ Math.round(face.boundingBox.height) }}</p>
+          <p v-if="face.age">Age: {{ Math.round(face.age) }}</p>
+          <p v-if="face.gender">Gender: {{ face.gender }}</p>
+          <p v-if="face.emotion">Emotion: {{ face.emotion }}</p>
+          <p v-if="face.confidence">Confidence: {{ Math.round(face.confidence * 100) }}%</p>
+        </div>
       </div>
     </div>
 
-    <div v-if="frameHistory.length > 0" class="frame-history">
-      <h3>Captured Frames</h3>
+    <div v-if="frameHistory.length > 0" class="frame-history mt-4">
+      <h4>Captured Frames</h4>
       <div class="frame-grid">
         <div v-for="frame in frameHistory" :key="frame.id" class="frame-item">
-          <img :src="frame.imageData" :alt="'Frame ' + frame.id" @click="viewFrameDetails(frame)" />
+          <img :src="frame.imageData" class="frame-image" @click="viewFrameDetails(frame)" />
           <div class="frame-info">
             <p>Faces: {{ frame.faces.length }}</p>
             <p>Time: {{ new Date(frame.timestamp).toLocaleTimeString() }}</p>
@@ -134,7 +132,7 @@ export default defineComponent({
   name: 'CameraComponent',
   setup() {
     const store = useAppStore();
-    const videoRef = ref<HTMLVideoElement | null>(null);
+    const videoElement = ref<HTMLVideoElement | null>(null);
     const canvasElement = ref<HTMLCanvasElement | null>(null);
     const fileInput = ref<HTMLInputElement | null>(null);
     const cameraService = new CameraService();
@@ -147,81 +145,234 @@ export default defineComponent({
     const detectedFaces = ref<Face[]>([]);
     const selectedFrame = ref<CapturedFrame | null>(null);
 
-    const { frameHistory } = store;
-
-    const startCamera = async () => {
+    const toggleCamera = async () => {
       try {
-        const stream = await cameraService.startCamera();
-        if (videoRef.value) {
-          videoRef.value.srcObject = stream;
-          isCameraActive.value = true;
-          error.value = '';
+        isLoading.value = true;
+        error.value = null;
+
+        if (isCameraActive.value) {
+          stopCamera();
+        } else {
+          await startCamera();
         }
       } catch (err) {
-        error.value = 'Failed to start camera';
+        error.value = (err as Error).message;
+      } finally {
+        isLoading.value = false;
+      }
+    };
+
+    const startCamera = async () => {
+      if (!videoElement.value) return;
+      
+      try {
+        await cameraService.startCamera(videoElement.value);
+        isCameraActive.value = true;
+        store.setCameraActive(true);
+        
+        await faceDetectionService.initialize();
+        detectionInterval.value = window.setInterval(detectFaces, 100);
+      } catch (err) {
+        error.value = (err as Error).message;
+        stopCamera();
       }
     };
 
     const stopCamera = () => {
-      cameraService.stopCamera();
-      if (videoRef.value) {
-        videoRef.value.srcObject = null;
+      if (detectionInterval.value) {
+        clearInterval(detectionInterval.value);
+        detectionInterval.value = null;
       }
+      
+      cameraService.stopCamera();
+      faceDetectionService.dispose();
       isCameraActive.value = false;
-      store.clearState();
+      store.setCameraActive(false);
+      detectedFaces.value = [];
+      store.setDetectedFaces([]);
     };
 
-    const captureFrame = async () => {
-      if (!videoRef.value) return;
-
+    const detectFaces = async () => {
+      if (!videoElement.value || !isCameraActive.value) return;
+      
       try {
-        const frame = await cameraService.captureFrame(videoRef.value);
-        const faces = await faceDetectionService.detectFaces(frame);
-        store.setDetectedFaces(faces);
-        store.addFrameToHistory({
-          id: Date.now(),
-          imageData: frame.toDataURL(),
-          timestamp: Date.now(),
-          faces
+        const detections = await faceDetectionService.detectFaces(videoElement.value);
+        detectedFaces.value = detections.map((detection, index) => {
+          const box = detection.detection.box;
+          const expressions = detection.expressions;
+          const emotion = Object.entries(expressions)
+            .sort(([, a], [, b]) => b - a)[0][0];
+          
+          return {
+            id: `face-${index}`,
+            boundingBox: {
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+            },
+            age: detection.age,
+            gender: detection.gender,
+            emotion: emotion,
+            confidence: detection.detection.score,
+          };
         });
+        store.setDetectedFaces(detectedFaces.value);
       } catch (err) {
-        error.value = 'Failed to capture frame';
+        console.error('Face detection error:', err);
       }
+    };
+
+    const triggerFileUpload = () => {
+      fileInput.value?.click();
     };
 
     const handleFileUpload = async (event: Event) => {
       const input = event.target as HTMLInputElement;
       if (!input.files?.length) return;
 
-      const file = input.files[0];
-      const reader = new FileReader();
+      try {
+        isLoading.value = true;
+        error.value = null;
+        
+        const file = input.files[0];
+        const reader = new FileReader();
+        
+        reader.onload = async (e) => {
+          const imageUrl = e.target?.result as string;
+          store.setUploadedImage(imageUrl);
+          
+          const img = new Image();
+          img.src = imageUrl;
+          
+          await new Promise((resolve) => {
+            img.onload = resolve;
+          });
+          
+          if (canvasElement.value) {
+            const ctx = canvasElement.value.getContext('2d');
+            if (ctx) {
+              canvasElement.value.width = img.width;
+              canvasElement.value.height = img.height;
+              ctx.drawImage(img, 0, 0);
+              
+              // Initialize face detection if not already done
+              if (!faceDetectionService.isInitialized) {
+                await faceDetectionService.initialize();
+              }
+              
+              const detections = await faceDetectionService.detectFaces(img);
+              const faces = detections.map((detection, index) => {
+                const box = detection.detection.box;
+                const expressions = detection.expressions;
+                const emotion = Object.entries(expressions)
+                  .sort(([, a], [, b]) => b - a)[0][0];
+                
+                return {
+                  id: `face-${index}`,
+                  boundingBox: {
+                    x: box.x,
+                    y: box.y,
+                    width: box.width,
+                    height: box.height,
+                  },
+                  age: detection.age,
+                  gender: detection.gender,
+                  emotion: emotion,
+                  confidence: detection.detection.score,
+                };
+              });
 
-      reader.onload = async (e) => {
-        const img = new Image();
-        img.onload = async () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0);
-            const faces = await faceDetectionService.detectFaces(canvas);
-            store.setDetectedFaces(faces);
-            store.addFrameToHistory({
-              id: Date.now(),
-              imageData: canvas.toDataURL(),
-              timestamp: Date.now(),
-              faces
-            });
+              // Add frame to history
+              store.addFrameToHistory({
+                id: `frame-${Date.now()}`,
+                imageData: imageUrl,
+                timestamp: Date.now(),
+                faces,
+              });
+
+              // Update current faces
+              detectedFaces.value = faces;
+              store.setDetectedFaces(faces);
+            }
           }
         };
-        img.src = e.target?.result as string;
-      };
-      reader.readAsDataURL(file);
+        
+        reader.readAsDataURL(file);
+      } catch (err) {
+        error.value = (err as Error).message;
+      } finally {
+        isLoading.value = false;
+      }
     };
 
-    const triggerFileUpload = () => {
-      fileInput.value?.click();
+    const captureFrame = async () => {
+      try {
+        isLoading.value = true;
+        error.value = null;
+        
+        if (!videoElement.value) return;
+        
+        // Create a temporary canvas to capture the video frame
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = videoElement.value.videoWidth;
+        tempCanvas.height = videoElement.value.videoHeight;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return;
+        
+        // Draw the current video frame to the canvas
+        tempCtx.drawImage(videoElement.value, 0, 0);
+        const imageData = tempCanvas.toDataURL('image/jpeg');
+        store.setCapturedImage(imageData);
+        
+        if (canvasElement.value) {
+          const ctx = canvasElement.value.getContext('2d');
+          if (ctx) {
+            canvasElement.value.width = tempCanvas.width;
+            canvasElement.value.height = tempCanvas.height;
+            ctx.drawImage(tempCanvas, 0, 0);
+
+            // Detect faces in the captured frame
+            const detections = await faceDetectionService.detectFaces(tempCanvas);
+            const faces = detections.map((detection, index) => {
+              const box = detection.detection.box;
+              const expressions = detection.expressions;
+              const emotion = Object.entries(expressions)
+                .sort(([, a], [, b]) => b - a)[0][0];
+              
+              return {
+                id: `face-${index}`,
+                boundingBox: {
+                  x: box.x,
+                  y: box.y,
+                  width: box.width,
+                  height: box.height,
+                },
+                age: detection.age,
+                gender: detection.gender,
+                emotion: emotion,
+                confidence: detection.detection.score,
+              };
+            });
+
+            // Add frame to history
+            store.addFrameToHistory({
+              id: `frame-${Date.now()}`,
+              imageData,
+              timestamp: Date.now(),
+              faces,
+            });
+
+            // Update current faces
+            detectedFaces.value = faces;
+            store.setDetectedFaces(faces);
+          }
+        }
+      } catch (err) {
+        error.value = (err as Error).message;
+      } finally {
+        isLoading.value = false;
+      }
     };
 
     const viewFrameDetails = (frame: CapturedFrame) => {
@@ -236,7 +387,7 @@ export default defineComponent({
     };
 
     const getFaceBoxStyle = (face: Face) => {
-      const scale = videoRef.value ? videoRef.value.offsetWidth / videoRef.value.videoWidth : 1;
+      const scale = videoElement.value ? videoElement.value.offsetWidth / videoElement.value.videoWidth : 1;
       return {
         position: 'absolute',
         left: `${face.boundingBox.x * scale}px`,
@@ -248,25 +399,19 @@ export default defineComponent({
       };
     };
 
-    const getEmotionLabel = (face: Face) => {
-      if (!face.emotion) return '';
-      return `${face.emotion} (${(face.confidence * 100).toFixed(0)}%)`;
-    };
-
     onUnmounted(() => {
       stopCamera();
     });
 
     return {
-      videoRef,
+      videoElement,
       canvasElement,
       fileInput,
       isCameraActive,
       isLoading,
       error,
       detectedFaces,
-      startCamera,
-      stopCamera,
+      toggleCamera,
       captureFrame,
       getFaceBoxStyle,
       triggerFileUpload,
@@ -275,7 +420,6 @@ export default defineComponent({
       selectedFrame,
       viewFrameDetails,
       deleteFrame,
-      getEmotionLabel,
     };
   },
 });
@@ -341,34 +485,36 @@ export default defineComponent({
   align-items: center;
 }
 
-.face-details {
-  margin-top: 20px;
-  padding: 15px;
-  background: #f5f5f5;
-  border-radius: 8px;
+.faces-container {
+  position: relative;
 }
 
 .face-info {
-  margin: 10px 0;
+  margin-top: 10px;
   padding: 10px;
-  background: white;
+  border: 1px solid #ddd;
   border-radius: 4px;
 }
 
+.face-details {
+  margin-top: 5px;
+  font-size: 14px;
+}
+
 .frame-history {
-  margin-top: 20px;
+  margin-top: 2rem;
 }
 
 .frame-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 15px;
-  margin-top: 10px;
+  gap: 1rem;
+  margin-top: 1rem;
 }
 
 .frame-item {
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.2s;
@@ -378,15 +524,16 @@ export default defineComponent({
   transform: scale(1.02);
 }
 
-.frame-item img {
+.frame-image {
   width: 100%;
-  height: auto;
+  height: 150px;
+  object-fit: cover;
 }
 
 .frame-info {
-  padding: 8px;
-  background: #f5f5f5;
-  font-size: 12px;
+  padding: 0.5rem;
+  background-color: #f8f9fa;
+  font-size: 0.9rem;
 }
 
 .modal {
@@ -395,5 +542,12 @@ export default defineComponent({
 
 .modal-dialog {
   margin-top: 2rem;
+}
+
+.face-info {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
 }
 </style> 
