@@ -1,46 +1,39 @@
 export class CameraService {
   private stream: MediaStream | null = null;
 
-  async startCamera(video: HTMLVideoElement) {
+  async startCamera(): Promise<MediaStream> {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = this.stream;
-      await video.play();
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+        audio: false
+      });
+      return this.stream;
     } catch (err) {
-      console.log('Camera error:', err);
-      throw new Error('Could not start camera');
+      throw new Error('Failed to access camera');
     }
   }
 
-  stopCamera() {
+  stopCamera(): void {
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop());
       this.stream = null;
     }
   }
 
-  captureFrame() {
-    if (!this.stream) {
-      throw new Error('Camera not started');
-    }
-
+  async captureFrame(video: HTMLVideoElement): Promise<HTMLCanvasElement> {
     const canvas = document.createElement('canvas');
-    const videoTrack = this.stream.getVideoTracks()[0];
-    const settings = videoTrack.getSettings();
+    const videoTrack = this.stream?.getVideoTracks()[0];
+    const settings = videoTrack?.getSettings();
     
-    canvas.width = settings.width || 640;
-    canvas.height = settings.height || 480;
+    canvas.width = settings?.width || video.videoWidth;
+    canvas.height = settings?.height || video.videoHeight;
     
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('Could not get canvas context');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     }
-
-    const video = document.createElement('video');
-    video.srcObject = this.stream;
-    ctx.drawImage(video, 0, 0);
     
-    return canvas.toDataURL('image/jpeg');
+    return canvas;
   }
 
   isCameraActive() {
