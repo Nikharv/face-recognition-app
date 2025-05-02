@@ -2,11 +2,11 @@
 
 A real-time face detection and recognition web application built with Vue.js, TypeScript, and face-api.js. This application allows users to detect faces in real-time using their webcam or uploaded images, with features like emotion detection, age and gender estimation, and face tracking.
 
-## 🌟 Live Demo
+## Live Demo
 
 Check out the live application at: [https://face-recog-webapp-8b0d5085c1e8.herokuapp.com/](https://face-recog-webapp-8b0d5085c1e8.herokuapp.com/)
 
-## ✨ Features
+## Features
 
 - **Real-time Face Detection**: Detect faces in real-time using your webcam
 - **Image Upload**: Upload images for face detection
@@ -16,7 +16,7 @@ Check out the live application at: [https://face-recog-webapp-8b0d5085c1e8.herok
 - **Responsive Design**: Works on both desktop and mobile devices
 - **User-Friendly Interface**: Simple and intuitive controls
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Frontend**: Vue.js 3, TypeScript, Bootstrap 5
 - **Face Detection**: face-api.js
@@ -25,7 +25,7 @@ Check out the live application at: [https://face-recog-webapp-8b0d5085c1e8.herok
 - **Build Tool**: Vite
 - **Deployment**: Heroku
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 face-recognition-app/
@@ -49,7 +49,7 @@ face-recognition-app/
 └── package.json                   # Project dependencies and scripts
 ```
 
-## 🔧 Key Files Explained
+## Key Files Explained
 
 ### `src/components/CameraComponent.vue`
 The main component that handles:
@@ -86,7 +86,7 @@ TypeScript type definitions:
 - AppState interface for global state
 - Type definitions for face detection results
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - Node.js 18.x or higher
@@ -132,16 +132,6 @@ npm run build
    - Displays age and gender information
    - Updates in real-time
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [face-api.js](https://github.com/justadudewhohacks/face-api.js) for face detection capabilities
-- [Vue.js](https://vuejs.org/) for the frontend framework
-- [Heroku](https://www.heroku.com/) for hosting the application
