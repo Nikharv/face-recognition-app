@@ -114,7 +114,7 @@ npm run dev
 npm run build
 ```
 
-## 🔍 How It Works
+## How It Works
 
 1. **Camera Initialization**:
    - The application requests camera access
