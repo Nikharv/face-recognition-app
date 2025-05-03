@@ -21,8 +21,10 @@ export default defineComponent({
     </main>
 
     <footer class="app-footer">
-      <p>Voicera.io Intern Project</p>
-      <p>Using Vue.js and TensorFlow.js</p>
+      <h2>Contact Me</h2>
+      <p>Nikharv Domadiya</p>
+      <p><a href="https://github.com/nikharv">GitHub</a></p>
+      <p><a href="https://linkedin.com/in/nikharv">LinkedIn</a></p>
     </footer>
   </div>
 </template>
